@@ -1,0 +1,108 @@
+# Self-host datastore stack for the Dub fork (ShipFast) — LOCAL DEV.
+# Provides self-hosted equivalents of the hosted services Dub assumes:
+#   PlanetScale  -> mysql:8 + ps-http-sim proxy
+#   Upstash Redis-> redis + serverless-redis-http (Upstash REST-compatible)
+#   Resend/SMTP  -> mailhog
+#   S3 / R2      -> minio
+# Tinybird (Clickhouse) and QStash shims are added in later phases.
+name: dub-selfhost
+
+services:
+  ps-mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: planetscale
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    command:
+      [
+        "--max_connections=1000",
+        "--default-authentication-plugin=mysql_native_password",
+      ]
+    ports:
+      - "3306:3306"
+    volumes:
+      - ps-mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  planetscale-proxy:
+    image: ghcr.io/mattrobenolt/ps-http-sim:latest
+    restart: unless-stopped
+    command:
+      [
+        "-mysql-no-pass",
+        "-listen-port=3900",
+        "-mysql-dbname=planetscale",
+        "-mysql-addr=ps-mysql",
+      ]
+    depends_on:
+      ps-mysql:
+        condition: service_healthy
+    ports:
+      - "3900:3900"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis:/data
+
+  # Upstash Redis REST-compatible HTTP proxy over the real redis above.
+  serverless-redis-http:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: dev_srh_token
+      SRH_CONNECTION_STRING: "redis://redis:6379"
+    depends_on:
+      - redis
+    ports:
+      - "8079:80"
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    restart: unless-stopped
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9003"]
+    environment:
+      MINIO_ROOT_USER: dubminio
+      MINIO_ROOT_PASSWORD: dubminio123
+    ports:
+      - "9002:9000"
+      - "9003:9003"
+    volumes:
+      - minio:/data
+
+  # One-shot: create the public + private buckets on startup.
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set local http://minio:9000 dubminio dubminio123) do echo waiting for minio; sleep 2; done;
+      mc mb -p local/dub-assets;
+      mc mb -p local/dub-private;
+      mc anonymous set download local/dub-assets;
+      echo minio-init done;
+      "
+
+volumes:
+  ps-mysql:
+  redis:
+  minio:
