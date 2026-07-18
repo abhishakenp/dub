@@ -1,0 +1,169 @@
+# Production stack for self-hosted Dub (standalone). Deployed via Dokploy on
+# exodus. Secrets come from the Dokploy environment (${...}). Domain: set
+# DUB_DOMAIN (e.g. dub.devliv.io). Email via Resend (no Mailhog in prod).
+name: dub-selfhost
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: apps/web/Dockerfile
+    restart: unless-stopped
+    environment:
+      NEXTAUTH_URL: https://${DUB_DOMAIN}
+      NEXTAUTH_SECRET: ${NEXTAUTH_SECRET}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY}
+      CRON_SECRET: ${CRON_SECRET}
+      UNSUBSCRIBE_TOKEN_SECRET: ${NEXTAUTH_SECRET}
+      # Cron/job URLs the app publishes to QStash must resolve to the app service.
+      NEXT_PUBLIC_NGROK_URL: http://app:8888
+      DATABASE_URL: "mysql://root:@ps-mysql:3306/planetscale"
+      PLANETSCALE_DATABASE_URL: "http://root:unused@planetscale-proxy:3900/planetscale"
+      UPSTASH_REDIS_REST_URL: http://serverless-redis-http:80
+      UPSTASH_REDIS_REST_TOKEN: ${SRH_TOKEN}
+      QSTASH_URL: http://qstash:8080
+      QSTASH_TOKEN: ${QSTASH_TOKEN}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY}
+      QSTASH_NEXT_SIGNING_KEY: ${QSTASH_NEXT_SIGNING_KEY}
+      TINYBIRD_API_URL: http://tinybird:7181
+      TINYBIRD_API_KEY: ${TINYBIRD_TOKEN}
+      RESEND_API_KEY: ${RESEND_API_KEY}
+      RESEND_FROM: ${RESEND_FROM}
+      STORAGE_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      STORAGE_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+      STORAGE_ENDPOINT: http://minio:9000
+      STORAGE_BASE_URL: https://${DUB_DOMAIN}/storage
+      STORAGE_PUBLIC_BUCKET: dub-assets
+      STORAGE_PRIVATE_BUCKET: dub-private
+      RAZORPAY_KEY_ID: ${RAZORPAY_KEY_ID}
+      RAZORPAY_KEY_SECRET: ${RAZORPAY_KEY_SECRET}
+      RAZORPAY_WEBHOOK_SECRET: ${RAZORPAY_WEBHOOK_SECRET}
+      RAZORPAY_ACCOUNT_NUMBER: ${RAZORPAY_ACCOUNT_NUMBER}
+    depends_on:
+      ps-mysql:
+        condition: service_healthy
+    networks:
+      - dokploy-network
+      - internal
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.dub.rule=Host(`${DUB_DOMAIN}`)
+      - traefik.http.routers.dub.entrypoints=websecure
+      - traefik.http.routers.dub.tls.certResolver=letsencrypt
+      - traefik.http.services.dub.loadbalancer.server.port=8888
+
+  ps-mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: planetscale
+      MYSQL_ROOT_HOST: "%"
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+    command: ["--max_connections=1000", "--default-authentication-plugin=mysql_native_password"]
+    volumes:
+      - ps-mysql:/var/lib/mysql
+    networks: [internal]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  planetscale-proxy:
+    image: ghcr.io/mattrobenolt/ps-http-sim:latest
+    restart: unless-stopped
+    command: ["-mysql-no-pass", "-listen-port=3900", "-mysql-dbname=planetscale", "-mysql-addr=ps-mysql"]
+    depends_on:
+      ps-mysql:
+        condition: service_healthy
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1"]
+    volumes:
+      - redis:/data
+    networks: [internal]
+
+  serverless-redis-http:
+    image: hiett/serverless-redis-http:latest
+    restart: unless-stopped
+    environment:
+      SRH_MODE: env
+      SRH_TOKEN: ${SRH_TOKEN}
+      SRH_CONNECTION_STRING: "redis://redis:6379"
+    depends_on: [redis]
+    networks: [internal]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: dub
+      CLICKHOUSE_USER: dub
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+    networks: [internal]
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    command: ["server", "/data", "--console-address", ":9003"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - minio:/data
+    networks: [internal]
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "
+      until (mc alias set local http://minio:9000 ${MINIO_ROOT_USER} ${MINIO_ROOT_PASSWORD}) do sleep 2; done;
+      mc mb -p local/dub-assets; mc mb -p local/dub-private;
+      mc anonymous set download local/dub-assets; echo done;"
+    networks: [internal]
+
+  tinybird:
+    build:
+      context: ./tinybird
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: "7181"
+      TINYBIRD_TOKEN: ${TINYBIRD_TOKEN}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: dub
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: dub
+    depends_on: [clickhouse]
+    networks: [internal]
+
+  qstash:
+    build:
+      context: ./qstash
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      QSTASH_PORT: "8080"
+      QSTASH_TOKEN: ${QSTASH_TOKEN}
+      QSTASH_CURRENT_SIGNING_KEY: ${QSTASH_CURRENT_SIGNING_KEY}
+    networks: [internal]
+
+networks:
+  dokploy-network:
+    external: true
+  internal:
+
+volumes:
+  ps-mysql:
+  redis:
+  clickhouse:
+  minio:
