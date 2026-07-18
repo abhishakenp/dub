@@ -10,7 +10,7 @@ import { getRewardSpendLimitWindow } from "@/lib/api/rewards/reward-spend-limit-
 import { calculateSaleEarnings } from "@/lib/api/sales/calculate-sale-earnings";
 import { executeWorkflows } from "@/lib/api/workflows/execute-workflows";
 import { logger } from "@/lib/axiom/server";
-import { getWorkflowConfig } from "@/lib/cron/qstash-workflow";
+import { verifyQstashSignature } from "@/lib/cron/verify-qstash";
 import { constructWebhookPartner } from "@/lib/partners/constuct-webhook-partner";
 import { determinePartnerRewards } from "@/lib/partners/determine-partner-reward";
 import { getRewardAmount } from "@/lib/partners/get-reward-amount";
@@ -39,7 +39,6 @@ import {
   Reward,
 } from "@prisma/client";
 import { WorkflowRetryAfterError } from "@upstash/workflow";
-import { serve } from "@upstash/workflow/nextjs";
 import { differenceInMonths } from "date-fns";
 import * as z from "zod/v4";
 import { logAndReturn } from "../../cron/utils";
@@ -79,11 +78,22 @@ const commissionInclude: Prisma.CommissionInclude = {
 };
 
 // POST /api/workflows/create-partner-commission
-export const { POST } = serve<Input>(
-  async (context) => {
-    const input = context.requestPayload;
-    const { event, partnerId, programId, bountySubmissionId } = input;
+// Self-host: Upstash's durable-workflow engine isn't available, so we run the
+// steps directly (the QStash transport delivers the trigger; steps are plain
+// sequential functions). WorkflowRetryAfterError -> 500 so the queue retries.
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  await verifyQstashSignature({ req, rawBody });
 
+  let input: Input;
+  try {
+    input = createPartnerCommissionSchema.parse(JSON.parse(rawBody));
+  } catch {
+    return new Response("Invalid workflow payload.", { status: 400 });
+  }
+  const { event, partnerId, programId, bountySubmissionId } = input;
+
+  try {
     const programEnrollment = await getProgramEnrollmentOrThrow({
       partnerId,
       programId,
@@ -97,82 +107,51 @@ export const { POST } = serve<Input>(
     });
 
     // Step 1: Create commission
-    const { commission, isFirstCommission } = await context.run(
-      "create-commission",
-      async () => {
-        return await stepCreateCommission({
-          ...input,
-          programEnrollment,
-        });
-      },
-    );
+    const { commission, isFirstCommission } = await stepCreateCommission({
+      ...input,
+      programEnrollment,
+    });
 
     // Step 2: Run side effects
-    await context.run("run-side-effects", async () => {
-      return await stepRunSideEffects({
-        ...input,
-        programEnrollment,
-        commission,
-        isFirstCommission,
-      });
+    await stepRunSideEffects({
+      ...input,
+      programEnrollment,
+      commission,
+      isFirstCommission,
     });
 
     // Step 3 (optional): Link the created commission to the bounty submission
     if (commission && bountySubmissionId) {
-      await context.run("set-bounty-commission", async () => {
-        const { count } = await prisma.bountySubmission.updateMany({
-          where: {
-            id: bountySubmissionId,
-            status: "approved",
-            commissionId: null,
-          },
-          data: {
-            commissionId: commission.id,
-          },
+      const { count } = await prisma.bountySubmission.updateMany({
+        where: { id: bountySubmissionId, status: "approved", commissionId: null },
+        data: { commissionId: commission.id },
+      });
+      if (!count) {
+        log({
+          message: `Bounty submission ${bountySubmissionId} not found or already linked to a commission, skipping...`,
+          type: "errors",
         });
-
-        if (count) {
-          return logAndReturn({
-            outputLog: `Linked commission ${commission.id} to bounty submission ${bountySubmissionId}`,
-          });
-        } else {
-          return logAndReturn({
-            outputLog: `Bounty submission ${bountySubmissionId} not found or already linked to a commission, skipping...`,
-          });
-        }
-      });
+      }
     }
-  },
-  {
-    initialPayloadParser: (requestPayload) => {
-      return createPartnerCommissionSchema.parse(JSON.parse(requestPayload));
-    },
-    failureFunction: async ({
-      context,
-      failStatus,
-      failResponse,
-      failHeaders,
-    }) => {
-      const { correlation } = getWorkflowConfig({
-        workflowType: "create-partner-commission",
-        body: context.requestPayload,
-      });
 
-      logger.error("workflow.failed", {
-        service: "qstash",
-        event: "workflow.failed",
-        workflowType: "create-partner-commission",
-        workflowRunId: context.workflowRunId,
-        failStatus,
-        failResponse,
-        failHeaders,
-        correlation,
-      });
-
-      await logger.flush();
-    },
-  },
-);
+    return new Response(
+      `Commission workflow complete for partner ${partnerId} (${commission ? "created " + commission.id : "no commission"}).`,
+    );
+  } catch (error) {
+    if (error instanceof WorkflowRetryAfterError) {
+      // transient — signal the queue to retry
+      return new Response(`Retry: ${error.message}`, { status: 500 });
+    }
+    logger.error("workflow.failed", {
+      service: "qstash",
+      event: "workflow.failed",
+      workflowType: "create-partner-commission",
+      error: (error as Error).message,
+    });
+    await logger.flush();
+    return new Response(`Workflow error: ${(error as Error).message}`, { status: 500 });
+  }
+}
 
 async function stepCreateCommission(
   input: StepFunctionInput,
@@ -284,6 +263,7 @@ async function stepCreateCommission(
     if (rewards.length > 0) {
       reward = rewards[0].reward;
     }
+
 
     // if there is no reward, skip commission creation
     if (!reward) {

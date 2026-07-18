@@ -94,6 +94,19 @@ async function deliver(msg) {
     "upstash-region": "us-east-1",
     ...msg.headers,
   };
+  // Upstash Workflow: serve() treats a request as the FIRST invocation only when
+  // there's no Upstash-Workflow-Sdk-Version header. client.trigger sends that
+  // header, but the initial trigger has no RunId yet — so strip sdk-version on
+  // the initial call (no RunId) to let serve() init and generate the RunId.
+  // Continuations carry a RunId and keep sdk-version.
+  if (msg.url.includes("/api/workflows/")) {
+    const hasRunId = Object.keys(msg.headers).some((k) => k.toLowerCase() === "upstash-workflow-runid");
+    if (!hasRunId) {
+      for (const k of Object.keys(headers)) {
+        if (k.toLowerCase() === "upstash-workflow-sdk-version") delete headers[k];
+      }
+    }
+  }
   let response;
   try {
     response = await fetch(msg.url, { method: msg.method, headers, body: msg.method === "GET" ? undefined : bodyStr });

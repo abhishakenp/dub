@@ -3,6 +3,8 @@ import { getGroupRewardsAndBounties } from "@/lib/api/partners/get-group-rewards
 import { getProgramEnrollmentOrThrow } from "@/lib/api/programs/get-program-enrollment-or-throw";
 import { executeWorkflows } from "@/lib/api/workflows/execute-workflows";
 import { logger } from "@/lib/axiom/server";
+import { verifyQstashSignature } from "@/lib/cron/verify-qstash";
+import { WorkflowRetryAfterError } from "@upstash/workflow";
 import { triggerDraftBountySubmissionCreation } from "@/lib/bounty/api/trigger-draft-bounty-submissions";
 import { getWorkflowConfig } from "@/lib/cron/qstash-workflow";
 import { generateDiscountCodeForPartner } from "@/lib/discounts/generate-discount-code-for-partner";
@@ -16,7 +18,6 @@ import { ProgramPartnerLinkSchema } from "@/lib/zod/schemas/programs";
 import { sendBatchEmail } from "@dub/email";
 import PartnerApplicationApproved from "@dub/email/templates/partner-application-approved";
 import { NETWORK_PROGRAM_ID } from "@dub/utils";
-import { serve } from "@upstash/workflow/nextjs";
 import * as z from "zod/v4";
 
 const inputSchema = z.object({
@@ -52,8 +53,16 @@ type Input = z.infer<typeof inputSchema>;
  */
 
 // POST /api/workflows/partner-approved
-export const { POST } = serve<Input>(
-  async (context) => {
+// Self-host: run the workflow steps directly (no Upstash durable engine). A
+// local context whose `run(name, fn)` just executes fn keeps the step body
+// unchanged; the QStash transport delivers the trigger.
+type LocalWorkflowContext = {
+  requestPayload: Input;
+  workflowRunId: string;
+  run: (name: string, fn: () => Promise<unknown>) => Promise<unknown>;
+};
+
+const runPartnerApprovedWorkflow = async (context: LocalWorkflowContext) => {
     const input = context.requestPayload;
     const { programId, partnerId, userId } = input;
 
@@ -324,34 +333,38 @@ export const { POST } = serve<Input>(
         programId,
       });
     });
-  },
-  {
-    initialPayloadParser: (requestPayload) => {
-      return inputSchema.parse(JSON.parse(requestPayload));
-    },
-    failureFunction: async ({
-      context,
-      failStatus,
-      failResponse,
-      failHeaders,
-    }) => {
-      const { correlation } = getWorkflowConfig({
-        workflowType: "partner-approved",
-        body: context.requestPayload,
-      });
+};
 
-      logger.error("workflow.failed", {
-        service: "qstash",
-        event: "workflow.failed",
-        workflowType: "partner-approved",
-        workflowRunId: context.workflowRunId,
-        failStatus,
-        failResponse,
-        failHeaders,
-        correlation,
-      });
+// POST /api/workflows/partner-approved
+export async function POST(req: Request) {
+  const rawBody = await req.text();
+  await verifyQstashSignature({ req, rawBody });
 
-      await logger.flush();
-    },
-  },
-);
+  let input: Input;
+  try {
+    input = inputSchema.parse(JSON.parse(rawBody));
+  } catch {
+    return new Response("Invalid workflow payload.", { status: 400 });
+  }
+
+  try {
+    await runPartnerApprovedWorkflow({
+      requestPayload: input,
+      workflowRunId: "local",
+      run: async (_name, fn) => fn(),
+    });
+    return new Response("Partner-approved workflow complete.");
+  } catch (error) {
+    if (error instanceof WorkflowRetryAfterError) {
+      return new Response(`Retry: ${(error as Error).message}`, { status: 500 });
+    }
+    logger.error("workflow.failed", {
+      service: "qstash",
+      event: "workflow.failed",
+      workflowType: "partner-approved",
+      error: (error as Error).message,
+    });
+    await logger.flush();
+    return new Response(`Workflow error: ${(error as Error).message}`, { status: 500 });
+  }
+}
