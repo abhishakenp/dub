@@ -135,6 +135,26 @@ export async function processPayouts({
   const totalPayoutAmount =
     totalInternalPayoutAmount + totalExternalPayoutAmount;
 
+  // Self-host: there is no Stripe customer to charge — the operator pre-funds
+  // RazorpayX directly. Skip the entire program-owner charge (payment method,
+  // fees, FX, PaymentIntent) and instead mark the invoice funded and dispatch
+  // straight to the payout rail (what the Stripe charge.succeeded webhook does).
+  if (!workspace.stripeId) {
+    await prisma.invoice.update({
+      where: { id: invoice.id },
+      data: { status: "completed", paidAt: new Date() },
+    });
+    await prisma.project.update({
+      where: { id: workspace.id },
+      data: { payoutsUsage: { increment: totalPayoutAmount } },
+    });
+    await qstash.publishJSON({
+      url: `${APP_DOMAIN_WITH_NGROK}/api/cron/payouts/charge-succeeded`,
+      body: { invoiceId: invoice.id },
+    });
+    return;
+  }
+
   const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
 
   const payoutFee = calculatePayoutFeeForMethod({

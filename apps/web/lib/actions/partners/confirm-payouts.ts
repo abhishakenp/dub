@@ -74,9 +74,9 @@ export const confirmPayoutsAction = authActionClient
       requiredPermissions: ["payouts.write"],
     });
 
-    if (!workspace.stripeId) {
-      throw new Error("Workspace does not have a valid Stripe ID.");
-    }
+    // Self-host: no Stripe customer to charge — the operator pre-funds
+    // RazorpayX, so we skip all Stripe payment-method plumbing below.
+    const selfHosted = !workspace.stripeId;
 
     if (fastSettlement && !workspace.fastDirectDebitPayouts) {
       throw new Error(
@@ -151,36 +151,40 @@ export const confirmPayoutsAction = authActionClient
       }
     }
 
-    const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+    const paymentMethod = selfHosted
+      ? null
+      : await stripe.paymentMethods.retrieve(paymentMethodId);
 
-    if (paymentMethod.customer !== workspace.stripeId) {
-      throw new Error("Invalid payout method.");
-    }
+    if (!selfHosted && paymentMethod) {
+      if (paymentMethod.customer !== workspace.stripeId) {
+        throw new Error("Invalid payout method.");
+      }
 
-    if (!PAYMENT_METHOD_TYPES.includes(paymentMethod.type)) {
-      throw new Error(
-        `We only support ${PAYMENT_METHOD_TYPES.join(
-          ", ",
-        )} for now. Please update your payout method to one of these.`,
-      );
-    }
-
-    if (fastSettlement && paymentMethod.type !== "us_bank_account") {
-      throw new Error("Fast settlement is only supported for ACH payment.");
-    }
-
-    // if it's a direct debit payment method, we need to check to make sure mandate is valid
-    if (DIRECT_DEBIT_PAYMENT_METHOD_TYPES.includes(paymentMethod.type)) {
-      const mandate = await checkPaymentMethodMandate({
-        paymentMethodId,
-      });
-
-      if (!mandate) {
-        // if mandate is not valid, remove the payment method
-        await stripe.paymentMethods.detach(paymentMethodId);
+      if (!PAYMENT_METHOD_TYPES.includes(paymentMethod.type)) {
         throw new Error(
-          "No active mandate found for this bank account. Please set up a new bank account for payouts under your billing settings page.",
+          `We only support ${PAYMENT_METHOD_TYPES.join(
+            ", ",
+          )} for now. Please update your payout method to one of these.`,
         );
+      }
+
+      if (fastSettlement && paymentMethod.type !== "us_bank_account") {
+        throw new Error("Fast settlement is only supported for ACH payment.");
+      }
+
+      // if it's a direct debit payment method, we need to check to make sure mandate is valid
+      if (DIRECT_DEBIT_PAYMENT_METHOD_TYPES.includes(paymentMethod.type)) {
+        const mandate = await checkPaymentMethodMandate({
+          paymentMethodId,
+        });
+
+        if (!mandate) {
+          // if mandate is not valid, remove the payment method
+          await stripe.paymentMethods.detach(paymentMethodId);
+          throw new Error(
+            "No active mandate found for this bank account. Please set up a new bank account for payouts under your billing settings page.",
+          );
+        }
       }
     }
 
@@ -207,9 +211,13 @@ export const confirmPayoutsAction = authActionClient
           amount,
           fee,
           total,
-          paymentMethod: fastSettlement
-            ? "ach_fast"
-            : STRIPE_PAYMENT_METHOD_NORMALIZATION[paymentMethod.type],
+          // Self-host has no Stripe payment method; use a non-card value so the
+          // charge-succeeded step treats funds as immediately available.
+          paymentMethod: selfHosted
+            ? "ach"
+            : fastSettlement
+              ? "ach_fast"
+              : STRIPE_PAYMENT_METHOD_NORMALIZATION[paymentMethod!.type],
           payoutMode: program.payoutMode,
         },
       });
