@@ -29,6 +29,7 @@ enum PartnerPayoutMethod {
   stablecoin
   paypal
   tremendous
+  razorpay
 }
 
 // https://devdocs.veriff.com/v1/docs/how-to-generate-sessions-manually#verification-session-statuses
@@ -71,6 +72,9 @@ model Partner {
   payoutMethodHash             String?
   cryptoWalletAddress          String?
   tremendousEmail              String?
+  // RazorpayX payout destination: a Contact + a Fund Account (VPA/bank).
+  razorpayContactId            String?              @unique
+  razorpayFundAccountId        String?              @unique
 
   // timestamp fields
   createdAt   DateTime  @default(now())

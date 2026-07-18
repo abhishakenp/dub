@@ -31,6 +31,7 @@ model Payout {
   stripePayoutId      String?
   stripePayoutTraceId String?              @db.Text
   tremendousOrderId   String?
+  razorpayPayoutId    String?              @unique
   failureReason       String?              @db.Text
   webhookEventId      String?              @unique // only for external payouts
   createdAt           DateTime             @default(now())
