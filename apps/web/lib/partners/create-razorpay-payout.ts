@@ -1,5 +1,10 @@
+import { createHash } from "crypto";
 import { prisma } from "@/lib/prisma";
-import { createRazorpayPayout } from "@/lib/razorpay/payouts";
+import {
+  createRazorpayPayout,
+  fetchRazorpayFundAccount,
+  payoutModeForAccountType,
+} from "@/lib/razorpay/payouts";
 
 // Send a partner's due payouts via RazorpayX. Called from the charge-succeeded
 // dispatch for partners whose defaultPayoutMethod === "razorpay". Aggregates the
@@ -39,13 +44,16 @@ export async function createRazorpayPartnerPayout({
   }
 
   const totalAmount = payouts.reduce((sum, p) => sum + p.amount, 0);
-  const idempotencyKey = `razorpay-payout:${invoiceId}:${partnerId}`;
+  // RazorpayX idempotency keys allow only [A-Za-z0-9 _-] and max 36 chars, so
+  // derive a deterministic short key from (invoice, partner).
+  const idempotencyKey = `rzp-${createHash("sha256").update(`${invoiceId}:${partnerId}`).digest("hex").slice(0, 28)}`;
 
+  const fundAccount = await fetchRazorpayFundAccount(partner.razorpayFundAccountId);
   const result = await createRazorpayPayout({
     fundAccountId: partner.razorpayFundAccountId,
     amount: totalAmount, // minor units (paise)
-    mode: "IMPS",
-    referenceId: idempotencyKey.slice(0, 40),
+    mode: payoutModeForAccountType(fundAccount.account_type),
+    referenceId: idempotencyKey,
     narration: "ShipFast partner payout",
     idempotencyKey,
   });

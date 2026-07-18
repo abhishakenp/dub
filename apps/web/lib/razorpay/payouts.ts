@@ -119,14 +119,31 @@ export function createRazorpayPayout(
     },
     body: JSON.stringify(body),
   }).then(async (res) => {
-    const json = (await res.json()) as RazorpayPayout & { error?: { description?: string } };
-    if (!res.ok || json.error) throw new Error(`RazorpayX payout failed: ${json.error?.description ?? res.statusText}`);
+    const json = (await res.json()) as RazorpayPayout & {
+      error?: { description?: string; code?: string } | null;
+    };
+    // RazorpayX includes an `error` object even on success, with a null
+    // description and code "NA". A real failure has a non-null description (and
+    // uses a non-2xx status).
+    const realError = json.error && json.error.description;
+    if (!res.ok || realError) {
+      throw new Error(`RazorpayX payout failed: ${json.error?.description ?? res.statusText}`);
+    }
     return json;
   });
 }
 
 export function fetchRazorpayPayout(id: string): Promise<RazorpayPayout> {
   return razorpayRequest<RazorpayPayout>("GET", `/payouts/${id}`);
+}
+
+export function fetchRazorpayFundAccount(id: string): Promise<RazorpayFundAccount> {
+  return razorpayRequest<RazorpayFundAccount>("GET", `/fund_accounts/${id}`);
+}
+
+// RazorpayX payout mode must match the fund-account type.
+export function payoutModeForAccountType(accountType: string): "UPI" | "IMPS" {
+  return accountType === "vpa" ? "UPI" : "IMPS";
 }
 
 // ── Webhook signature verification ───────────────────────────────────────────
