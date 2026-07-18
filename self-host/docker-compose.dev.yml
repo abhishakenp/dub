@@ -75,6 +75,25 @@ services:
       - "1025:1025"
       - "8025:8025"
 
+  # Clickhouse — backs the self-hosted Tinybird shim (analytics/events).
+  clickhouse:
+    image: clickhouse/clickhouse-server:24-alpine
+    restart: unless-stopped
+    environment:
+      CLICKHOUSE_DB: dub
+      CLICKHOUSE_USER: dub
+      CLICKHOUSE_PASSWORD: dub
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"
+      - "9001:9000"
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse:/var/lib/clickhouse
+
   minio:
     image: minio/minio:latest
     restart: unless-stopped
@@ -106,3 +125,4 @@ volumes:
   ps-mysql:
   redis:
   minio:
+  clickhouse:

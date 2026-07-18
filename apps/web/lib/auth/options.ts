@@ -96,9 +96,11 @@ export const authOptions: NextAuthOptions = {
   providers: [
     EmailProvider({
       sendVerificationRequest({ identifier, url }) {
+        // Self-host: always deliver via the configured mailer (SMTP/Mailhog in
+        // dev) so the magic link lands in an inbox. Still log it in dev for
+        // convenience when no inbox is being watched.
         if (!isProduction) {
           console.log(`Login link: ${url}`);
-          return;
         }
 
         sendEmail({
