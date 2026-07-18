@@ -42,15 +42,11 @@ services:
     depends_on:
       ps-mysql:
         condition: service_healthy
+    # Domain/Traefik routing is managed by Dokploy's Domains feature (authoritative),
+    # not raw compose labels — avoids duplicate routers for the same host.
     networks:
       - dokploy-network
       - internal
-    labels:
-      - traefik.enable=true
-      - traefik.http.routers.dub.rule=Host(`${DUB_DOMAIN}`)
-      - traefik.http.routers.dub.entrypoints=websecure
-      - traefik.http.routers.dub.tls.certResolver=letsencrypt
-      - traefik.http.services.dub.loadbalancer.server.port=8888
 
   ps-mysql:
     image: mysql:8.0
