@@ -18,7 +18,9 @@ function authQs(extra = {}) {
 // Run a read query and return ClickHouse's native JSON envelope
 // ({ meta, data, rows, rows_before_limit_at_least, statistics }).
 export async function queryJSON(sql, settings = {}) {
-  const res = await fetch(`${CH_URL}/?${authQs(settings)}`, {
+  // Return 64-bit ints as JSON numbers (not strings) so the app's zod-bird
+  // `z.number()` schemas validate. Tinybird returns numbers, so must we.
+  const res = await fetch(`${CH_URL}/?${authQs({ output_format_json_quote_64bit_integers: "0", ...settings })}`, {
     method: "POST",
     body: sql,
   });

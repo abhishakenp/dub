@@ -67,6 +67,8 @@ const SCALAR_FIELDS = ["continent", "country", "region", "city", "device", "brow
 function filterConditions(params, { scopeByWorkspaceLinks = true } = {}) {
   const p = P(params);
   const conds = [];
+  // Workspace isolation: every event MV carries an enriched workspace_id.
+  if (p.has("workspaceId")) conds.push(`workspace_id = ${q(p.str("workspaceId"))}`);
   if (scopeByWorkspaceLinks) {
     // link scoping: explicit linkId, else via workspace_links subquery when any link filter is set
     if (p.has("linkId")) {
@@ -400,9 +402,47 @@ function all_stats() {
   return `SELECT (SELECT COUNT(timestamp) FROM dub_click_events_mv) AS clicks, (SELECT COUNT(timestamp)+42036155 FROM dub_links_metadata) AS links, (SELECT COALESCE(SUM(amount),0) FROM dub_sale_events_mv) AS sales FORMAT JSON`;
 }
 
+// v3_usage — workspace usage timeseries (events count or links count per day)
+function v3_usage(params) {
+  const p = P(params);
+  const resource = p.str("resource", "events");
+  const tz = p.str("timezone", "UTC");
+  const ws = q(p.str("workspaceId"));
+  const start = q(p.str("start"));
+  const end = q(p.str("end"));
+  const fmt = `formatDateTime(interval, '%FT%T.000%z')`;
+  if (resource === "links") {
+    return `SELECT ${fmt} AS date, uniq(link_id) AS value
+      FROM dub_links_metadata_latest FINAL
+      WHERE workspace_id = ${ws} AND deleted = 0 AND timestamp >= ${start} AND timestamp < ${end}
+      GROUP BY toStartOfDay(timestamp, ${q(tz)}) AS interval ORDER BY interval FORMAT JSON`;
+  }
+  const folderFilter = p.has("folderId") ? ` AND link_id IN (SELECT link_id FROM dub_links_metadata_latest FINAL WHERE folder_id = ${q(p.str("folderId"))})` : "";
+  const domainFilter = p.has("domain") ? ` AND domain = ${q(p.str("domain"))}` : "";
+  const union = ["dub_click_events_mv", "dub_lead_events_mv", "dub_sale_events_mv"]
+    .map((t) => `SELECT timestamp FROM ${t} WHERE workspace_id = ${ws} AND timestamp >= ${start} AND timestamp < ${end}${folderFilter}${domainFilter}`)
+    .join(" UNION ALL ");
+  return `SELECT ${fmt} AS date, uniq(*) AS value FROM (${union}) GROUP BY toStartOfDay(timestamp, ${q(tz)}) AS interval ORDER BY interval FORMAT JSON`;
+}
+
+function get_framer_lead_events(params) {
+  const p = P(params);
+  return `SELECT * FROM dub_lead_events_mv WHERE link_id IN ${arrayLiteral(p.arr("linkIds"))} AND customer_id IN ${arrayLiteral(p.arr("customerIds"))} FORMAT JSON`;
+}
+
+function coordinates_all() {
+  return `SELECT country, city, latitude, longitude, device FROM dub_click_events_mv
+    WHERE timestamp >= now() - INTERVAL 5 MINUTE AND country != 'Unknown' AND city != 'Unknown' AND city != 'Ashburn' AND latitude != '' LIMIT 500 FORMAT JSON`;
+}
+function coordinates_sales() {
+  return `SELECT country, city, latitude, longitude, device, amount, round(amount * 0.2) AS commission FROM dub_sale_events_mv
+    WHERE timestamp >= now() - INTERVAL 12 HOUR AND country != 'Unknown' AND city != 'Unknown' AND latitude != '' LIMIT 500 FORMAT JSON`;
+}
+
 export const PIPES = {
   v4_events, v4_count, v4_timeseries, v4_group_by, v4_group_by_link_metadata,
   get_click_event, get_lead_event, get_lead_events, get_webhook_events, get_postback_events,
   get_import_error_logs, get_api_log_by_id, get_api_logs, get_api_logs_count, get_audit_logs,
   v3_group_by_link_country, v2_customer_events, v2_top_programs, all_stats,
+  v3_usage, get_framer_lead_events, coordinates_all, coordinates_sales,
 };
