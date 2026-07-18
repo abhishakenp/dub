@@ -28,7 +28,10 @@ const resendEmailForOptions = (
   // CreateEmailOptions requires at least one of react or text
   const baseOptions = {
     to: isPreviewEnv ? "delivered@resend.dev" : to,
-    from: from || VARIANT_TO_FROM_MAP[variant],
+    // Self-host: RESEND_FROM overrides the hardcoded @dub.co senders so a
+    // Resend account without the dub.co domain (e.g. onboarding@resend.dev or
+    // your own verified domain) can send.
+    from: from || process.env.RESEND_FROM || VARIANT_TO_FROM_MAP[variant],
     subject: `${subject}${isPreviewEnv && gitBranch ? ` [${gitBranch}]` : ""}`,
     bcc,
     // if replyTo is set to "noreply@dub.co", don't set replyTo
