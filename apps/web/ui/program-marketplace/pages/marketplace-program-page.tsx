@@ -19,16 +19,29 @@ import { getMarketplaceHref } from "../utils/urls";
 export const revalidate = 3600; // 1 hour
 
 export async function generateMarketplaceProgramStaticParams() {
-  const programs = await prisma.program.findMany({
-    where: {
-      addedToMarketplaceAt: {
-        not: null,
+  // During a build with no database reachable (e.g. the Docker image build),
+  // return no static params so ALL marketplace pages render on-demand at
+  // runtime. Returning params here would make Next statically render those page
+  // bodies at build, which also query the DB and would fail the build.
+  let programs: { slug: string }[];
+  try {
+    programs = await prisma.program.findMany({
+      where: {
+        addedToMarketplaceAt: {
+          not: null,
+        },
       },
-    },
-    select: {
-      slug: true,
-    },
-  });
+      select: {
+        slug: true,
+      },
+    });
+  } catch (error) {
+    console.warn(
+      "generateMarketplaceProgramStaticParams: database unavailable, rendering marketplace on-demand",
+      error,
+    );
+    return [];
+  }
 
   const categoryPages = Object.values(Category).map((category) => ({
     segments: ["c", category.toLowerCase()],
