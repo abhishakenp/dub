@@ -20,7 +20,12 @@ RUN pnpm build:packages
 ENV NODE_OPTIONS=--max-old-space-size=8192 \
     SKIP_ENV_VALIDATION=1 \
     DATABASE_URL="mysql://root:@localhost:3306/planetscale" \
-    NEXTAUTH_SECRET="build-time-placeholder-secret-build-time-placeholder"
+    NEXTAUTH_SECRET="build-time-placeholder-secret-build-time-placeholder" \
+    # Dummy, non-empty Stripe keys so module-scope `new Stripe(...)` (e.g. the
+    # importer crons calling stripeAppClient()) don't throw during next build's
+    # page-data collection. Real keys are injected at runtime via Dokploy env.
+    STRIPE_SECRET_KEY="sk_test_dummy_build_only" \
+    STRIPE_APP_SECRET_KEY="sk_test_dummy_build_only"
 RUN cd apps/web \
   && pnpm exec prisma generate --schema=./prisma/schema \
   && pnpm exec next build
