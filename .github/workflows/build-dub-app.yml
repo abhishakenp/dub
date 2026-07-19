@@ -1,4 +1,5 @@
 name: build-dub-app
+# Standalone self-hosted Dub build → GHCR (ShipHelper org, Blacksmith runners).
 
 # Build the self-hosted Dub app image on Blacksmith (NOT on exodus — the heavy
 # next build OOMs the prod box). Push to GHCR; Dokploy then only pulls it.
