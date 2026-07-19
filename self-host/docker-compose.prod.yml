@@ -6,9 +6,9 @@ name: dub-selfhost
 services:
   app:
     # Prebuilt in CI (never built on exodus — the next build OOMs it).
-    image: ghcr.io/shiphelper/dub-selfhost-app:latest
-    # Always re-pull :latest on deploy so a fresh CI image is picked up
-    # (docker compose otherwise reuses the cached :latest tag).
+    # Pinned to the immutable commit-sha tag so each deploy pulls the exact new
+    # image (docker compose reuses a cached :latest and won't recreate otherwise).
+    image: ghcr.io/shiphelper/dub-selfhost-app:616bf8012a52e5ccedcbf2aca93557567a5cb826
     pull_policy: always
     restart: unless-stopped
     environment:
