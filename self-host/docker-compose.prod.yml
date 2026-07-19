@@ -5,9 +5,8 @@ name: dub-selfhost
 
 services:
   app:
-    build:
-      context: ..
-      dockerfile: apps/web/Dockerfile
+    # Prebuilt on Blacksmith CI (never built on exodus — the next build OOMs it).
+    image: ghcr.io/abhishakenp/dub-selfhost-app:latest
     restart: unless-stopped
     environment:
       NEXTAUTH_URL: https://${DUB_DOMAIN}
