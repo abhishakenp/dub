@@ -60,6 +60,8 @@ const failureTooltips: Record<PartnerPayoutMethod, string> = {
     "Payout failures are usually due to incorrect PayPal account configuration. Once you've [updated your account](/payouts?settings=true), you can retry the payout.",
   tremendous:
     "Payout failures are usually due to an invalid gift card email or delivery issue. Once you've [updated your account](/payouts?settings=true), you can retry the payout.",
+  razorpay:
+    "Payout failures are usually due to invalid UPI or bank account details. Once you've [updated your account](/payouts?settings=true), the payout will be retried automatically.",
 };
 
 function PayoutDetailsSheetContent({ payout }: PayoutDetailsSheetProps) {

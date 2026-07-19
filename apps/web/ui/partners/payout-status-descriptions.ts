@@ -50,4 +50,16 @@ export const PAYOUT_STATUS_DESCRIPTIONS: Record<
     sent: "Payouts that are on their way to your gift card email – delivery is typically within minutes.",
     completed: "Payouts that have been delivered to your gift card email.",
   },
+
+  razorpay: {
+    pending:
+      "Payouts that have passed the [program's holding period](https://dub.co/help/article/commissions-payouts#what-does-holding-period-mean) and are awaiting payment from the program (as long as it reaches the [program's minimum payout amount](https://dub.co/help/article/commissions-payouts#what-does-minimum-payout-amount-mean)).",
+    processing:
+      "Payouts that are being processed by the program – this can take up to 5 business days.",
+    processed:
+      "Payouts that have been processed by the program and will be paid out to your bank account or UPI via Razorpay.",
+    sent: "Payouts that are on their way to your bank account or UPI – typically arriving within minutes to a few hours.",
+    completed:
+      "Payouts that have been paid out to your bank account or UPI.",
+  },
 };

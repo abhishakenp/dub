@@ -12,7 +12,8 @@ export type PartnerPayoutMethod =
   | "connect"
   | "stablecoin"
   | "paypal"
-  | "tremendous";
+  | "tremendous"
+  | "razorpay";
 
 export type TrialMarketingEmailProps = {
   email: string;

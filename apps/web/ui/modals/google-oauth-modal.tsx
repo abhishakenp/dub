@@ -53,7 +53,7 @@ function GoogleOauthModal({
         <button
           onClick={() => {
             setShowGoogleOauthModal(false);
-            Cookies.set("hideGoogleOauthModal", true, { expires: 14 });
+            Cookies.set("hideGoogleOauthModal", "true", { expires: 14 });
           }}
           className="text-sm text-neutral-400 underline underline-offset-4 transition-colors hover:text-neutral-800 active:text-neutral-400"
         >
