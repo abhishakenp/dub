@@ -5,8 +5,11 @@ name: dub-selfhost
 
 services:
   app:
-    # Prebuilt on Blacksmith CI (never built on exodus — the next build OOMs it).
+    # Prebuilt in CI (never built on exodus — the next build OOMs it).
     image: ghcr.io/shiphelper/dub-selfhost-app:latest
+    # Always re-pull :latest on deploy so a fresh CI image is picked up
+    # (docker compose otherwise reuses the cached :latest tag).
+    pull_policy: always
     restart: unless-stopped
     environment:
       NEXTAUTH_URL: https://${DUB_DOMAIN}
