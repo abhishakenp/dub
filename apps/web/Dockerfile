@@ -31,7 +31,10 @@ ENV NODE_OPTIONS=--max-old-space-size=8192 \
     STRIPE_APP_SECRET_KEY="sk_test_dummy_build_only" \
     UPSTASH_VECTOR_REST_URL="https://dummy-vector.upstash.io" \
     UPSTASH_VECTOR_REST_TOKEN="dummy_vector_token" \
-    PLAIN_API_KEY="plain_dummy_build_only"
+    PLAIN_API_KEY="plain_dummy_build_only" \
+    # Self-host domain — inlined into the client/edge bundles at build so Dub's
+    # middleware routes app./api./partners./admin.ship-fast.ai to the right app.
+    NEXT_PUBLIC_SELF_HOSTED_DOMAIN="ship-fast.ai"
 RUN cd apps/web \
   && pnpm exec prisma generate --schema=./prisma/schema \
   && pnpm exec next build

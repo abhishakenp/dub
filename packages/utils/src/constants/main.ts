@@ -1,3 +1,10 @@
+// Self-hosting: set NEXT_PUBLIC_SELF_HOSTED_DOMAIN (e.g. "ship-fast.ai") to serve
+// the app/api/partners/admin experiences on that domain's subdomains. Each Set /
+// domain below gains the corresponding subdomain; when unset, upstream dub.co
+// behavior is preserved. (The *_WITH_NGROK vars stay internal — they use
+// NEXT_PUBLIC_NGROK_URL, i.e. the in-cluster http://app:8888 address.)
+const SELF_HOSTED_DOMAIN = process.env.NEXT_PUBLIC_SELF_HOSTED_DOMAIN;
+
 export const SHORT_DOMAIN = "dub.sh";
 
 export const APP_HOSTNAMES = new Set([
@@ -5,10 +12,12 @@ export const APP_HOSTNAMES = new Set([
   "preview.dub.co",
   "localhost:8888",
   "localhost",
+  ...(SELF_HOSTED_DOMAIN ? [`app.${SELF_HOSTED_DOMAIN}`] : []),
 ]);
 
-export const APP_DOMAIN =
-  process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
+export const APP_DOMAIN = SELF_HOSTED_DOMAIN
+  ? `https://app.${SELF_HOSTED_DOMAIN}`
+  : process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
     ? "https://app.dub.co"
     : process.env.NEXT_PUBLIC_VERCEL_ENV === "preview"
       ? "https://preview.dub.co"
@@ -29,10 +38,12 @@ export const API_HOSTNAMES = new Set([
   `api.${SHORT_DOMAIN}`,
   "api.localhost:8888",
   "api.localhost",
+  ...(SELF_HOSTED_DOMAIN ? [`api.${SELF_HOSTED_DOMAIN}`] : []),
 ]);
 
-export const API_DOMAIN =
-  process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
+export const API_DOMAIN = SELF_HOSTED_DOMAIN
+  ? `https://api.${SELF_HOSTED_DOMAIN}`
+  : process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
     ? "https://api.dub.co"
     : process.env.NEXT_PUBLIC_VERCEL_ENV === "preview"
       ? "https://api-staging.dub.co"
@@ -42,6 +53,7 @@ export const ADMIN_HOSTNAMES = new Set([
   "admin.dub.co",
   "admin.localhost:8888",
   "admin.localhost",
+  ...(SELF_HOSTED_DOMAIN ? [`admin.${SELF_HOSTED_DOMAIN}`] : []),
 ]);
 
 export const PARTNERS_HOSTNAMES = new Set([
@@ -49,10 +61,12 @@ export const PARTNERS_HOSTNAMES = new Set([
   "partners-staging.dub.co",
   "partners.localhost:8888",
   "partners.localhost",
+  ...(SELF_HOSTED_DOMAIN ? [`partners.${SELF_HOSTED_DOMAIN}`] : []),
 ]);
 
-export const PARTNERS_DOMAIN =
-  process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
+export const PARTNERS_DOMAIN = SELF_HOSTED_DOMAIN
+  ? `https://partners.${SELF_HOSTED_DOMAIN}`
+  : process.env.NEXT_PUBLIC_VERCEL_ENV === "production"
     ? "https://partners.dub.co"
     : process.env.NEXT_PUBLIC_VERCEL_ENV === "preview"
       ? "https://partners-staging.dub.co"
