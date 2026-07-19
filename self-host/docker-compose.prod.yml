@@ -58,10 +58,6 @@ services:
       MYSQL_ROOT_HOST: "%"
       MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
     command: ["--max_connections=1000", "--default-authentication-plugin=mysql_native_password"]
-    # TEMP: tailnet-only bind (exodus tailscale IP) for one-off admin seeding
-    # from a trusted tailnet device. NOT public. Remove after seeding.
-    ports:
-      - "100.113.187.15:13306:3306"
     volumes:
       - ps-mysql:/var/lib/mysql
     networks: [internal]
