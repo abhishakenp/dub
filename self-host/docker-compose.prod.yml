@@ -6,7 +6,7 @@ name: dub-selfhost
 services:
   app:
     # Prebuilt on Blacksmith CI (never built on exodus — the next build OOMs it).
-    image: ghcr.io/abhishakenp/dub-selfhost-app:latest
+    image: ghcr.io/shiphelper/dub-selfhost-app:latest
     restart: unless-stopped
     environment:
       NEXTAUTH_URL: https://${DUB_DOMAIN}
