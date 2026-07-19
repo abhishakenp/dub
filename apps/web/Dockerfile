@@ -17,7 +17,7 @@ RUN pnpm build:packages
 
 # Prisma client + Next build. Provide throwaway build-time env so codegen and
 # static analysis don't fail on missing vars; real values come at runtime.
-ENV NODE_OPTIONS=--max-old-space-size=3072 \
+ENV NODE_OPTIONS=--max-old-space-size=8192 \
     SKIP_ENV_VALIDATION=1 \
     DATABASE_URL="mysql://root:@localhost:3306/planetscale" \
     NEXTAUTH_SECRET="build-time-placeholder-secret-build-time-placeholder"
